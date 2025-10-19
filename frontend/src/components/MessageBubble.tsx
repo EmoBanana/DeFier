@@ -23,7 +23,7 @@ export default function MessageBubble({ role, content, timestamp }: MessageBubbl
           : "mr-auto glass text-app-foreground/90 ring-1 ring-black/5 dark:ring-white/10 rounded-bl-none"
       )}
     >
-      <p>{content}</p>
+      <p dangerouslySetInnerHTML={{ __html: content.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }} />
       {timestamp ? (
         <span
           className={clsx(

@@ -2,6 +2,7 @@
 
 import { useRef, useEffect, useState } from "react";
 import MessageBubble from "./MessageBubble";
+import TypingBubble from "./TypingBubble";
 
 type Message = { id: string; role: "user" | "assistant"; content: string; timestamp?: string };
 
@@ -11,6 +12,8 @@ type ChatWindowProps = {
 
 export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
+  const [isTyping, setIsTyping] = useState(false);
+  const nowTs = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -22,20 +25,32 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
     setMessages((prev) => [...prev, { id: crypto.randomUUID(), role, content, timestamp: ts }]);
   };
 
-  // Listen for simple send events to keep this component decoupled from the input
+  // Listen for send events and call the backend Gemini API
   useEffect(() => {
-    const handler = (e: Event) => {
+    const handler = async (e: Event) => {
       const custom = e as CustomEvent<{ text: string }>;
       const text = custom.detail?.text ?? "";
       if (!text) return;
       addMessage("user", text);
-      // Mock assistant response for UI demo
-      const reply = `Analyzing: ${text}. This is a demo response.`;
-      setTimeout(() => addMessage("assistant", reply), 450);
+      try {
+        setIsTyping(true);
+        const res = await fetch("/api/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ messages: [...messages, { role: "user", content: text }] }),
+        });
+        const data = await res.json();
+        const reply = data?.reply || "";
+        addMessage("assistant", reply || "(no response)");
+      } catch (err) {
+        addMessage("assistant", "Sorry, there was an error reaching the model.");
+      } finally {
+        setIsTyping(false);
+      }
     };
     window.addEventListener("defier-send", handler as EventListener);
     return () => window.removeEventListener("defier-send", handler as EventListener);
-  }, []);
+  }, [messages]);
 
   return (
     <div className="flex h-full w-full flex-col">
@@ -45,9 +60,12 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
             Ask DeFier about addresses, contracts, transactions, or market data.
           </div>
         ) : (
-          messages.map((m) => (
-            <MessageBubble key={m.id} role={m.role} content={m.content} timestamp={m.timestamp} />
-          ))
+          <>
+            {messages.map((m) => (
+              <MessageBubble key={m.id} role={m.role} content={m.content} timestamp={m.timestamp} />
+            ))}
+            {isTyping && <TypingBubble timestamp={nowTs()} />}
+          </>
         )}
       </div>
       {/* Expose imperative API via custom event for simplicity */}
