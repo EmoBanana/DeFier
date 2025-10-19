@@ -1,0 +1,115 @@
+@import "tailwindcss";
+
+/* Theme tokens use class strategy for next-themes */
+:root {
+  /* Bright Pastel (Light Mode) */
+  --app-bg: 248 247 251; /* light.bg #F8F7FB */
+  --app-fg: 30 30 47; /* light.text #1E1E2F */
+  --surface: 255 255 255; /* light.card #FFFFFF */
+  --muted: 246 248 255; /* subtle lilac */
+  --accent: 168 199 255; /* light.accent #A8C7FF */
+  --accent-2: 199 185 255; /* light.accent2 #C7B9FF */
+  --ring: 168 199 255;
+  /* Bottom → Top white ease overlay + left → right pastel band */
+  --bg-image: 
+    linear-gradient(to top,
+      rgb(var(--app-bg)) 0%,
+      rgb(var(--app-bg) / 0.98) 20%,
+      rgb(var(--app-bg) / 0.75) 45%,
+      rgb(var(--app-bg) / 0.45) 70%,
+      rgb(var(--app-bg) / 0.0) 95%),
+    linear-gradient(90deg, #f9e1d5 0%, #eee9ff 35%, #e6f5f1 70%, rgba(255,255,255,0) 100%);
+}
+
+.dark {
+  /* Blue-Violet Dark */
+  --app-bg: 6 10 24; /* deep navy */
+  --app-fg: 237 237 237; /* soft foreground */
+  --surface: 16 22 48; /* blue-violet surface */
+  --muted: 22 28 64; /* deeper */
+  --accent: 129 140 248; /* indigo 400 */
+  --accent-2: 167 139 250; /* violet 400 */
+  --ring: 167 139 250;
+  --bg-image: none;
+}
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+  --color-app: rgb(var(--app-bg));
+  --color-app-foreground: rgb(var(--app-fg));
+  --color-surface: rgb(var(--surface));
+  --color-muted: rgb(var(--muted));
+  --color-accent: rgb(var(--accent));
+  --color-accent-2: rgb(var(--accent-2));
+}
+
+body {
+  background-color: rgb(var(--app-bg));
+  background-image: var(--bg-image);
+  background-repeat: no-repeat, no-repeat;
+  background-position: bottom left, top left;
+  background-size: 100vw 90vh, 100vw 100vh; /* slightly larger overlap to remove seam */
+  color: rgb(var(--app-fg));
+}
+
+html {
+  background-color: rgb(var(--app-bg));
+  background-image: var(--bg-image);
+  background-repeat: no-repeat, no-repeat;
+  background-position: bottom left, top left;
+  background-size: 100vw 64vh, 100vw 44vh;
+}
+
+/* Utility surfaces */
+.glass {
+  background: color-mix(in oklab, rgb(var(--surface)) 80%, transparent);
+  backdrop-filter: saturate(140%) blur(12px);
+}
+
+.card-shadow {
+  box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+}
+
+.radial-bg {
+  position: absolute;
+  inset: -20% -10% auto -10%;
+  height: 70vh;
+  filter: blur(60px);
+  opacity: 0.5;
+  border-radius: 9999px;
+}
+
+.radial-bg.pastel {
+  /* Slightly subtler so the new light gradient shows through */
+  background: radial-gradient(60% 60% at 20% 20%, rgba(167, 139, 250, 0.22), transparent 60%),
+              radial-gradient(50% 50% at 80% 10%, rgba(99, 102, 241, 0.16), transparent 60%);
+}
+
+.dark .radial-bg.pastel { opacity: 0; }
+
+.radial-bg.violet {
+  opacity: 0;
+}
+
+.dark .radial-bg.violet {
+  opacity: 0.55;
+  background: radial-gradient(55% 55% at 20% 20%, rgba(88, 28, 135, 0.35), transparent 60%),
+              radial-gradient(45% 45% at 80% 10%, rgba(30, 64, 175, 0.3), transparent 60%);
+}
+
+/* Smooth theme transitions */
+@media (prefers-reduced-motion: no-preference) {
+  :root {
+    --theme-transition: background-color 350ms ease, color 350ms ease, border-color 350ms ease, box-shadow 350ms ease;
+  }
+  html, body {
+    transition: var(--theme-transition), background-image 600ms ease;
+  }
+  .glass, .radial-bg {
+    transition: var(--theme-transition), backdrop-filter 350ms ease, opacity 350ms ease;
+  }
+}
+
+/* Bubble base class for positioning (no tails) */
+.bubble { position: relative; }
