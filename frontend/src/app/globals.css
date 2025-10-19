@@ -123,3 +123,35 @@ html {
 
 /* Bubble base class for positioning (no tails) */
 .bubble { position: relative; }
+
+/* Chat code styling */
+.chat-code {
+  background: rgba(0,0,0,0.04);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  color: rgb(var(--app-fg));
+}
+
+.dark .chat-code {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(255,255,255,0.08);
+}
+
+/* Inline code */
+code { 
+  background: rgba(0,0,0,0.06);
+  padding: 0.1rem 0.35rem;
+  border-radius: 6px;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace);
+  font-size: 0.925em;
+}
+
+.dark code {
+  background: rgba(255,255,255,0.08);
+}

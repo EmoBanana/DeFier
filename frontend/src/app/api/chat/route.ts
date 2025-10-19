@@ -1,7 +1,23 @@
 import { NextRequest } from "next/server";
+import {
+  initializeMcpClients,
+  getGeminiCompatibleTools,
+  mcpToolToGeminiFunctionDeclaration,
+  callMcpTool,
+} from "../../../../lib/mcpClient";
+import { selectRelevantTools } from "../../../../lib/toolSelector";
+import { BLOCKCHAIN_SYSTEM_PROMPT } from "../../../../lib/systemPrompt";
 
 const API_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
+
+/**
+ * Minimal formatter: leave text unchanged so single backticks like `Hello`
+ * are kept intact. The UI component renders inline and block code safely.
+ */
+function formatGeminiResponse(text: string): string {
+  return text;
+}
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,16 +27,58 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "Missing GEMINI_API_KEY" }), { status: 500 });
     }
 
-    // Build Gemini "contents" from chat history
+    // Initialize MCP clients and get Gemini-compatible tools only
+    await initializeMcpClients();
+    const allTools = getGeminiCompatibleTools();
+    console.log(`ℹ️ Gemini-compatible MCP tools: ${allTools.length}`);
+
+    // Build Gemini "contents" from chat history with system prompt
     const history = Array.isArray(messages) ? messages : [];
-    const contents = history.map((m: any) => ({
-      role: m.role === "assistant" ? "model" : "user",
-      parts: [{ text: String(m.content ?? "") }],
-    }));
+    
+    // Prepend system prompt as first user message
+    const contents = [
+      {
+        role: "user",
+        parts: [{ text: BLOCKCHAIN_SYSTEM_PROMPT }],
+      },
+      {
+        role: "model",
+        parts: [{ text: "Understood. I will use the available blockchain and cryptocurrency tools to answer your questions accurately. I'll infer chain IDs from context (defaulting to Ethereum chain_id='1' when not specified) and provide clear, data-driven responses." }],
+      },
+      ...history.map((m: any) => ({
+        role: m.role === "assistant" ? "model" : "user",
+        parts: [{ text: String(m.content ?? "") }],
+      })),
+    ];
 
-    const body = { contents };
+    // Get the latest user message to analyze intent
+    const lastUserMessage = messages
+      .filter((m: any) => m.role === "user")
+      .pop()?.content || "";
 
-    const res = await fetch(`${API_URL}?key=${apiKey}`, {
+    // Smart tool selection based on user prompt
+    const relevantTools = selectRelevantTools(allTools, lastUserMessage);
+
+    // Convert selected tools to Gemini function declarations
+    const tools = relevantTools.length > 0 ? [{
+      functionDeclarations: relevantTools.map(mcpToolToGeminiFunctionDeclaration),
+    }] : undefined;
+
+    let body: any = { contents };
+    if (tools) {
+      body.tools = tools;
+    }
+
+    // Initial call to Gemini with function calling enabled
+    console.log("🤖 Calling Gemini with", relevantTools.length, "relevant MCP tools");
+    
+    // Log tool names for debugging
+    if (relevantTools.length > 0) {
+      const toolNames = relevantTools.map(t => t.name).join(", ");
+      console.log("📋 Tools being sent:", toolNames);
+    }
+
+    let res = await fetch(`${API_URL}?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -28,15 +86,160 @@ export async function POST(req: NextRequest) {
 
     if (!res.ok) {
       const t = await res.text();
-      return new Response(JSON.stringify({ error: t }), { status: res.status });
+      console.error("❌ Gemini API error:", res.status, t);
+      
+      // If 400 error with tools, try without tools as fallback
+      if (res.status === 400 && tools) {
+        console.log("⚠️ Retrying without MCP tools...");
+        body = { contents };
+        res = await fetch(`${API_URL}?key=${apiKey}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        
+        if (!res.ok) {
+          const t2 = await res.text();
+          console.error("❌ Retry also failed:", t2);
+          return new Response(
+            JSON.stringify({ 
+              reply: "I'm having trouble processing your request right now. Please try:\n\n• Asking a simpler question\n• Being more specific about what you need\n• Trying again in a moment\n\n**Examples of questions I can help with:**\n- `What's the price of Bitcoin?`\n- `Show me the latest Ethereum block`\n- `Get info for address 0x...`"
+            }), 
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          );
+        }
+      } else if (res.status === 400) {
+        // 400 error without tools - likely a malformed request
+        return new Response(
+          JSON.stringify({ 
+            reply: "I couldn't process that request. Could you try rephrasing it?\n\nI work best with clear questions like:\n- `What's the price of SOL?`\n- `Show me the latest Ethereum block`\n- `Get transactions for address 0x...`"
+          }), 
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      } else {
+        // Other errors (rate limits, auth, etc.)
+        return new Response(
+          JSON.stringify({ 
+            reply: "I'm experiencing technical difficulties. Please try again in a moment."
+          }), 
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
     }
 
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-    return new Response(JSON.stringify({ reply: text }), { status: 200, headers: { "Content-Type": "application/json" } });
+    let data = await res.json();
+    let candidate = data?.candidates?.[0];
+
+    // Handle function calls from Gemini
+    const maxIterations = 5; // Prevent infinite loops
+    let iteration = 0;
+
+    while (candidate?.content?.parts && iteration < maxIterations) {
+      const parts = candidate.content.parts;
+      
+      // Check if there are function calls
+      const functionCalls = parts.filter((p: any) => p.functionCall);
+      
+      if (functionCalls.length === 0) {
+        // No function calls, return the text response
+        break;
+      }
+
+      iteration++;
+      console.log(`🔄 Iteration ${iteration}: Processing ${functionCalls.length} function call(s)`);
+
+      // Execute all function calls in parallel
+      const functionResponses = await Promise.all(
+        functionCalls.map(async (part: any) => {
+          const funcCall = part.functionCall;
+          const toolName = funcCall.name;
+          const args = funcCall.args || {};
+
+          try {
+            const result = await callMcpTool(toolName, args);
+            
+            // Return function response in Gemini format
+            return {
+              functionResponse: {
+                name: toolName,
+                response: {
+                  content: JSON.stringify(result),
+                },
+              },
+            };
+          } catch (err: any) {
+            console.error(`❌ Error calling tool ${toolName}:`, err);
+            return {
+              functionResponse: {
+                name: toolName,
+                response: {
+                  error: err?.message || "Tool execution failed",
+                },
+              },
+            };
+          }
+        })
+      );
+
+      // Add function responses to conversation and call Gemini again
+      contents.push({
+        role: "model",
+        parts: functionCalls,
+      });
+
+      contents.push({
+        role: "user",
+        parts: functionResponses,
+      });
+
+      body = { contents };
+      if (tools) {
+        body.tools = tools;
+      }
+
+      console.log("🤖 Calling Gemini with function results");
+      res = await fetch(`${API_URL}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const t = await res.text();
+        return new Response(JSON.stringify({ error: t }), { status: res.status });
+      }
+
+      data = await res.json();
+      candidate = data?.candidates?.[0];
+    }
+
+    // Extract final text response
+    let text = candidate?.content?.parts?.find((p: any) => p.text)?.text ?? "";
+    
+    // If no text response (e.g., due to errors), provide a helpful message
+    if (!text || text.trim() === "") {
+      return new Response(
+        JSON.stringify({ 
+          reply: "I apologize, but I encountered an issue processing your request.\n\nCould you please try:\n• Rephrasing your question\n• Being more specific\n• Asking something else\n\n**Example queries:**\n- `What's the latest Ethereum block?`\n- `Show me the price of Bitcoin`\n- `Get info for address 0x742d35Cc...`"
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+    
+    // Format the response to render inline code properly
+    text = formatGeminiResponse(text);
+    
+    return new Response(
+      JSON.stringify({ reply: text }),
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   } catch (e: any) {
-    return new Response(JSON.stringify({ error: e?.message ?? "Unknown error" }), { status: 500 });
+    console.error("❌ Chat API error:", e);
+    return new Response(
+      JSON.stringify({ 
+        reply: "Oops! Something unexpected happened. Please try asking your question again. If the issue persists, try a different question or refresh the page."
+      }), 
+      { status: 200, headers: { "Content-Type": "application/json" } }
+    );
   }
 }
-
-

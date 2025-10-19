@@ -9,8 +9,37 @@ type MessageBubbleProps = {
   timestamp?: string;
 };
 
+function escapeHtml(input: string): string {
+  return input
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+function renderContentToHtml(raw: string): string {
+  // Convert fenced code blocks ```...``` to <pre><code> (multi-line and single-line)
+  let html = raw
+    .replace(/(^|\s)```[\s]*\n?([\s\S]*?)\n?```(\s|$)/g, (_m, pre, code, post) => {
+      const escaped = escapeHtml(String(code).trim());
+      return `${pre}<pre class="chat-code"><code>${escaped}</code></pre>${post}`;
+    })
+    .replace(/(^|\s)```([^\n`][^`]*?)```(\s|$)/g, (_m, pre, code, post) => {
+      const escaped = escapeHtml(String(code).trim());
+      return `${pre}<pre class="chat-code"><code>${escaped}</code></pre>${post}`;
+    });
+
+  // Inline code `...` to <code>...</code>
+  html = html.replace(/`([^`]+?)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
+
+  // Bold **...** to <strong>...</strong>
+  html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+
+  return html;
+}
+
 export default function MessageBubble({ role, content, timestamp }: MessageBubbleProps) {
   const isUser = role === "user";
+  const html = renderContentToHtml(content);
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
@@ -23,7 +52,7 @@ export default function MessageBubble({ role, content, timestamp }: MessageBubbl
           : "mr-auto glass text-app-foreground/90 ring-1 ring-black/5 dark:ring-white/10 rounded-bl-none"
       )}
     >
-      <p dangerouslySetInnerHTML={{ __html: content.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>") }} />
+      <div dangerouslySetInnerHTML={{ __html: html }} />
       {timestamp ? (
         <span
           className={clsx(
