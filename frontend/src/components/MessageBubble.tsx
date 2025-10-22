@@ -31,6 +31,13 @@ function renderContentToHtml(raw: string): string {
   // Inline code `...` to <code>...</code>
   html = html.replace(/`([^`]+?)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`);
 
+  // Markdown links [text](https://...) to styled <a> with external arrow (continuous underline)
+  html = html.replace(/\[([^\]]+?)\]\((https?:\/\/[^\s)]+)\)/g, (_m, text, url) => {
+    const safeText = escapeHtml(String(text));
+    const safeUrl = escapeHtml(String(url));
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 underline decoration-dotted underline-offset-2">${safeText}&nbsp;↗</a>`;
+  });
+
   // Bold **...** to <strong>...</strong>
   html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
 

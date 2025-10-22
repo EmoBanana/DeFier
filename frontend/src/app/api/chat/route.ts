@@ -27,13 +27,24 @@ export async function POST(req: NextRequest) {
       return new Response(JSON.stringify({ error: "Missing GEMINI_API_KEY" }), { status: 500 });
     }
 
-    // Initialize MCP clients and get Gemini-compatible tools only
-    await initializeMcpClients();
-    const allTools = getGeminiCompatibleTools();
-    console.log(`ℹ️ Gemini-compatible MCP tools: ${allTools.length}`);
+    // Decide if this is an actionable request (run Avail, no MCP tools needed)
+    const history = Array.isArray(messages) ? messages : [];
+    const lastUserMessage = messages
+      .filter((m: any) => m.role === "user")
+      .pop()?.content || "";
+    const isAction = /\b(send|transfer|bridge|swap)\b/i.test(String(lastUserMessage));
+
+    // Initialize MCP tools only for non-action queries
+    let allTools: any[] = [];
+    if (!isAction) {
+      await initializeMcpClients();
+      allTools = getGeminiCompatibleTools();
+      console.log(`ℹ️ Gemini-compatible MCP tools: ${allTools.length}`);
+    } else {
+      console.log("ℹ️ Action intent detected; skipping MCP tool initialization");
+    }
 
     // Build Gemini "contents" from chat history with system prompt
-    const history = Array.isArray(messages) ? messages : [];
     
     // Prepend system prompt as first user message
     const contents = [
@@ -51,13 +62,10 @@ export async function POST(req: NextRequest) {
       })),
     ];
 
-    // Get the latest user message to analyze intent
-    const lastUserMessage = messages
-      .filter((m: any) => m.role === "user")
-      .pop()?.content || "";
+    // lastUserMessage computed above
 
     // Smart tool selection based on user prompt
-    const relevantTools = selectRelevantTools(allTools, lastUserMessage);
+    const relevantTools = isAction ? [] : selectRelevantTools(allTools, lastUserMessage);
 
     // Convert selected tools to Gemini function declarations
     const tools = relevantTools.length > 0 ? [{
@@ -65,15 +73,15 @@ export async function POST(req: NextRequest) {
     }] : undefined;
 
     let body: any = { contents };
-    if (tools) {
+    if (tools && !isAction) {
       body.tools = tools;
     }
 
     // Initial call to Gemini with function calling enabled
-    console.log("🤖 Calling Gemini with", relevantTools.length, "relevant MCP tools");
+    console.log("🤖 Calling Gemini with", isAction ? 0 : relevantTools.length, "relevant MCP tools");
     
     // Log tool names for debugging
-    if (relevantTools.length > 0) {
+    if (!isAction && relevantTools.length > 0) {
       const toolNames = relevantTools.map(t => t.name).join(", ");
       console.log("📋 Tools being sent:", toolNames);
     }
@@ -215,6 +223,93 @@ export async function POST(req: NextRequest) {
 
     // Extract final text response
     let text = candidate?.content?.parts?.find((p: any) => p.text)?.text ?? "";
+
+    // Robust INTENT extraction helper
+    function extractIntent(raw: string): any | null {
+      if (!raw) return null;
+      const src = String(raw);
+      // 1) Case-insensitive INTENT label, allow optional colon, allow trailing content
+      const m1 = src.match(/intent\s*:?\s*(\{[\s\S]*?\})/i);
+      if (m1) {
+        try { return JSON.parse(m1[1]); } catch {}
+      }
+      // 2) Strip fenced code blocks markers if present and re-try
+      const unfenced = src.replace(/```[a-zA-Z]*\n([\s\S]*?)\n```/g, '$1');
+      const m2 = unfenced.match(/intent\s*:?\s*(\{[\s\S]*?\})/i);
+      if (m2) {
+        try { return JSON.parse(m2[1]); } catch {}
+      }
+      // 3) Fallback: scan for any JSON object with required keys
+      const objs = unfenced.match(/\{[\s\S]*?\}/g) || [];
+      for (const o of objs.reverse()) { // prefer last
+        try {
+          const j = JSON.parse(o);
+          if (j && typeof j === 'object' && ['action','token','amount','recipient','chain'].every(k => k in j)) {
+            return j;
+          }
+        } catch {}
+      }
+      return null;
+    }
+
+    let intent: any = extractIntent(text);
+    if (intent) {
+      // remove visible INTENT line if present
+      text = text.replace(/intent\s*:?\s*\{[\s\S]*?\}\s*/i, "").trim();
+      // If user specified a source chain ("from <chain>") but the model intent omitted it, attach it
+      if (typeof lastUserMessage === 'string') {
+        const fromMatch = lastUserMessage.match(/\bfrom\s+([a-zA-Z0-9_-]+)\b/i);
+        const onMatch = lastUserMessage.match(/\bon\s+([a-zA-Z0-9_-]+)\b/i);
+        if (fromMatch) {
+          const srcRaw = fromMatch[1].toLowerCase();
+          const source = srcRaw === 'arb' ? 'arbitrum' : srcRaw === 'op' ? 'optimism' : srcRaw;
+          if (!('source' in intent)) (intent as any).source = source;
+        }
+        if (onMatch) {
+          const dstRaw = onMatch[1].toLowerCase();
+          const chain = dstRaw === 'arb' ? 'arbitrum' : dstRaw === 'op' ? 'optimism' : dstRaw;
+          (intent as any).chain = chain; // prefer explicit user-specified destination
+        }
+      }
+    }
+
+    // Heuristic fallback: parse last user prompt if model omitted intent
+    if (!intent && typeof lastUserMessage === 'string' && lastUserMessage.trim()) {
+      function normalizeChain(x: string) {
+        const c = x.toLowerCase();
+        if (c === 'arb' || c.includes('arbitrum')) return 'arbitrum';
+        if (c === 'op' || c.includes('optimism')) return 'optimism';
+        if (c.includes('base')) return 'base';
+        if (c.includes('amoy') || c.includes('polygon') || c.includes('matic')) return 'polygon';
+        if (c.includes('sepolia')) return 'sepolia';
+        return c;
+      }
+      function normalizeToken(x: string) {
+        const t = x.toUpperCase();
+        if (t === 'SEPOLIA') return 'ETH';
+        if (t === 'ETH' || t === 'WETH') return 'ETH';
+        if (t === 'USDC') return 'USDC';
+        if (t === 'USDT') return 'USDT';
+        return t;
+      }
+      const msg = lastUserMessage.replace(/\s+/g, ' ').trim();
+      // amount+token like "0.002eth" or "0.002 eth"
+      const amtTok = msg.match(/\b(\d+(?:\.\d+)?)\s*([a-zA-Z]{2,10})\b/);
+      // to 0x... or ENS after "to"
+      const toMatch = msg.match(/\bto\s+([0-9a-zA-Z\.]+)\b/i);
+      // on <chain>
+      const onMatch = msg.match(/\bon\s+([a-zA-Z0-9_-]+)\b/i);
+      // from <chain>
+      const fromMatch = msg.match(/\bfrom\s+([a-zA-Z0-9_-]+)\b/i);
+      if (amtTok && toMatch && onMatch) {
+        const amount = amtTok[1];
+        const token = normalizeToken(amtTok[2]);
+        const recipient = toMatch[1];
+        const chain = normalizeChain(onMatch[1]);
+        const source = fromMatch ? normalizeChain(fromMatch[1]) : undefined;
+        intent = { action: 'transfer', token, amount, recipient, chain, source } as any;
+      }
+    }
     
     // If no text response (e.g., due to errors), provide a helpful message
     if (!text || text.trim() === "") {
@@ -230,7 +325,7 @@ export async function POST(req: NextRequest) {
     text = formatGeminiResponse(text);
     
     return new Response(
-      JSON.stringify({ reply: text }),
+      JSON.stringify({ reply: text, intent }),
       { status: 200, headers: { "Content-Type": "application/json" } }
     );
   } catch (e: any) {
