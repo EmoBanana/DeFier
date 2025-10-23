@@ -47,24 +47,27 @@ export async function getUnifiedBalance(_address: Address) {
 }
 
 export async function bridgeFunds(params: {
-  fromChain: ChainKey | string;
-  toChain: ChainKey | string;
+  fromChain: number;
+  toChain: number;
   token: string;
   amount: string;
   toAddress: Address;
 }) {
   const client = await ensureNexus();
-  // eslint-disable-next-line no-console
   console.log("[avail] Bridging funds", params);
-  const chainId = mapChainToTestnetId(params.toChain) as (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
+  
   const token = normalizeToken(params.token);
+  
   const result = await client.bridge({
     token,
     amount: params.amount,
-    chainId,
+    chainId: params.toChain as unknown as SUPPORTED_CHAINS_IDS,
   });
+
   return result as any;
 }
+
+  
 
 export async function transferFunds(params: {
   chain: ChainKey | string;

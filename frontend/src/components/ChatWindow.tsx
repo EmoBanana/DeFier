@@ -4,6 +4,7 @@ import { useRef, useEffect, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import TypingBubble from "./TypingBubble";
 import { getUnifiedBalance, transferFunds, getExplorerUrl, bridgeAndExecute, normalizeTokenSymbol, toTestnetChainId, bridgeFunds } from "lib/avail";
+import { useNotification } from "@blockscout/app-sdk";
 import { useAccount } from "wagmi";
 import { isAddress } from "viem";
 
@@ -17,8 +18,21 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isTyping, setIsTyping] = useState(false);
   const { address, isConnected } = useAccount();
+  const { openTxToast } = useNotification();
   const nowTs = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const scrollRef = useRef<HTMLDivElement | null>(null);
+
+  // Map human chain names to Blockscout SDK chain IDs (not always EVM chain IDs)
+  function toBlockscoutChainId(chainLike: string | number): number {
+    if (typeof chainLike === 'number') return chainLike;
+    const c = String(chainLike).toLowerCase();
+    if (c.includes('arbitrum')) return 1500; // Arbitrum Sepolia in Blockscout SDK
+    if (c.includes('optimism') || c === 'op') return 11155420; // OP Sepolia
+    if (c.includes('sepolia') || c.includes('ethereum') || c === 'eth') return 11155111; // Ethereum Sepolia
+    if (c.includes('base')) return 84532; // Base Sepolia
+    if (c.includes('polygon') || c.includes('amoy') || c.includes('matic')) return 80002; // Polygon Amoy
+    return toTestnetChainId(c);
+  }
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -70,36 +84,81 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
         console.log("[flow] unified balance", ub);
 
         // If intent is "bridge" only, run bridge path directly
-        if (intent.action === "bridge") {
-          const srcHint = ((intent as any)?.source as string | undefined) || undefined;
-          let src = srcHint ? (srcHint.toLowerCase() === 'arb' ? 'arbitrum' : srcHint.toLowerCase() === 'op' ? 'optimism' : srcHint.toLowerCase()) : undefined;
-          if (!src) {
-            // infer a source with balance
-            try {
-              const ub = await getUnifiedBalance(fromAddr);
-              const asset = (ub as any)?.assets?.find((a: any) => String(a?.symbol || '').toUpperCase() === normalizeTokenSymbol(intent.token as string));
-              if (asset && Array.isArray(asset.breakdown) && asset.breakdown.length > 0) {
-                src = (asset.breakdown[0]?.chain?.name || '').toLowerCase();
-              }
-            } catch {}
-          }
-          if (!src) {
-            addMessage("assistant", "Could not determine source chain for bridge.");
-            return;
-          }
-          console.log("[flow] explicit bridge()", { from: src, to: intent.chain, token: intent.token, amount: intent.amount });
-          const br = await bridgeFunds({
-            fromChain: src,
-            toChain: intent.chain as string,
-            token: intent.token as string,
-            amount: intent.amount as string,
-            toAddress,
-          });
-          const bHash = (br as any)?.bridgeTransactionHash || (br as any)?.transactionHash || "";
-          addMessage("assistant", bHash ? `Bridge submitted. [View on explorer](${getExplorerUrl(src, bHash)})` : ((br as any)?.success === false ? `Bridge failed: ${(br as any)?.error || 'unknown error'}` : "Bridge submitted. Awaiting transaction hash..."));
-          return;
-        }
+        // --- Bridge intent handler ---
+if (intent.action === "bridge") {
+  // Prefer explicit source_chain / destination_chain fields
+  const src =
+    (intent.source_chain as string | undefined)?.toLowerCase() ||
+    (intent.source as string | undefined)?.toLowerCase();
+  const toChain =
+    (intent.destination_chain as string | undefined)?.toLowerCase() ||
+    (intent.chain as string | undefined)?.toLowerCase();
 
+  if (!src) {
+    addMessage("assistant", "Source chain not specified for bridge intent.");
+    console.warn("[flow] Missing source chain in intent", intent);
+    return;
+  }
+
+  if (!toChain) {
+    addMessage("assistant", "Destination chain not specified for bridge intent.");
+    console.warn("[flow] Missing destination chain in intent", intent);
+    return;
+  }
+
+  const chainIdMap: Record<string, number> = {
+    sepolia: 11155111,
+    arb: 421614,
+    arbitrum: 421614,
+    "arbitrum sepolia": 421614,
+    optimism: 11155420,
+  };
+
+  const fromChainId = chainIdMap[src] || toTestnetChainId(src);
+  const toChainId = chainIdMap[toChain] || toTestnetChainId(toChain);
+
+  console.log("[flow] explicit bridge()", {
+    from: src,
+    fromChainId,
+    to: toChain,
+    toChainId,
+    token: intent.token,
+    amount: intent.amount,
+  });
+
+  const br = await bridgeFunds({
+    fromChain: fromChainId,
+    toChain: toChainId,
+    token: intent.token as string,
+    amount: intent.amount as string,
+    toAddress,
+  });  
+
+  const bHash =
+    (br as any)?.bridgeTransactionHash ||
+    (br as any)?.transactionHash ||
+    "";
+
+  addMessage(
+    "assistant",
+    bHash
+      ? `Bridge submitted. [View on explorer](${getExplorerUrl(toChain, bHash)})`
+      : (br as any)?.success === false
+      ? `Bridge failed: ${(br as any)?.error || "unknown error"}`
+      : "Bridge submitted. Awaiting transaction hash..."
+  );
+
+  if (bHash) {
+    try {
+      await openTxToast(String(toChainId), bHash);
+    } catch (err) {
+      console.warn("[toast] failed to open transaction toast", err);
+    }
+  }
+  return;
+}
+
+        
         // Decide: if sufficient balance on destination chain, direct transfer; otherwise bridge+execute
         const desiredToken = normalizeTokenSymbol(intent.token as string);
         const destChainId = toTestnetChainId(intent.chain as string);
@@ -133,7 +192,14 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
             fromAddress: fromAddr,
           });
           const directHash = (direct as any)?.transactionHash || (direct as any)?.txHash || '';
-          addMessage("assistant", directHash ? `Transfer submitted. [View on explorer](${getExplorerUrl(intent.chain as string, directHash)})` : ((direct as any)?.success === false ? `Transfer failed: ${(direct as any)?.error || 'unknown error'}` : "Transfer submitted. Awaiting transaction hash..."));
+          if (!directHash) {
+            addMessage("assistant", (direct as any)?.success === false ? `Transfer failed: ${(direct as any)?.error || 'unknown error'}` : "Transfer submitted. Awaiting transaction hash...");
+          } else {
+            const url = getExplorerUrl(intent.chain as string, directHash);
+            addMessage("assistant", url ? `Transfer submitted. [View on explorer](${url})` : `Transfer submitted. Tx: ${directHash}`);
+            addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash: directHash, address: fromAddr })}`);
+            try { await openTxToast(String(toBlockscoutChainId(String(intent.chain))), directHash); } catch {}
+          }
           return;
         }
 
@@ -153,8 +219,8 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
           if (normalizedSrc && normalizedSrc !== intent.chain) {
             try {
               const br = await bridgeFunds({
-                fromChain: normalizedSrc,
-                toChain: intent.chain as string,
+                fromChain: toTestnetChainId(normalizedSrc),
+                toChain: toTestnetChainId(intent.chain as string),
                 token: intent.token as string,
                 amount: intent.amount as string,
                 toAddress,
@@ -163,6 +229,8 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
               if (bHash) {
                 const url = getExplorerUrl(normalizedSrc, bHash);
                 addMessage("assistant", url ? `Bridge submitted. [View on explorer](${url})` : `Bridge submitted. Tx: ${bHash}`);
+                addMessage("assistant", `__tx__${JSON.stringify({ chain: String(normalizedSrc), chainId: toBlockscoutChainId(String(normalizedSrc)), txHash: bHash, address: fromAddr })}`);
+                try { await openTxToast(String(toBlockscoutChainId(String(normalizedSrc))), bHash); } catch {}
                 return;
               }
             } catch (e) {
@@ -176,6 +244,8 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
         if (txHashBE) {
           const url = getExplorerUrl(intent.chain as string, txHashBE);
           addMessage("assistant", url ? `Transfer submitted. [View on explorer](${url})` : `Transfer submitted. Tx: ${txHashBE}`);
+          addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash: txHashBE, address: fromAddr })}`);
+          try { await openTxToast(String(toBlockscoutChainId(String(intent.chain))), txHashBE); } catch {}
           return;
         }
 
@@ -193,7 +263,14 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
           fromAddress: fromAddr,
         });
         const txHash = (result as any)?.transactionHash || (result as any)?.txHash || "";
-        addMessage("assistant", txHash ? `Transfer submitted. [View on explorer](${getExplorerUrl(intent.chain as string, txHash)})` : ((result as any)?.success === false ? `Transfer failed: ${(result as any)?.error || 'unknown error'}` : "Transfer submitted. Awaiting transaction hash..."));
+        if (!txHash) {
+          addMessage("assistant", (result as any)?.success === false ? `Transfer failed: ${(result as any)?.error || 'unknown error'}` : "Transfer submitted. Awaiting transaction hash...");
+        } else {
+          const url = getExplorerUrl(intent.chain as string, txHash);
+          addMessage("assistant", url ? `Transfer submitted. [View on explorer](${url})` : `Transfer submitted. Tx: ${txHash}`);
+          addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash, address: fromAddr })}`);
+          try { await openTxToast(String(toBlockscoutChainId(String(intent.chain))), txHash); } catch {}
+        }
       } catch (err) {
         addMessage("assistant", "Sorry, there was an error reaching the model.");
       } finally {

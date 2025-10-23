@@ -2,6 +2,9 @@
 
 import { motion } from "framer-motion";
 import clsx from "clsx";
+import dynamic from "next/dynamic";
+
+const TxInline = dynamic(() => import("./TxInline"), { ssr: false });
 
 type MessageBubbleProps = {
   role: "user" | "assistant";
@@ -46,6 +49,8 @@ function renderContentToHtml(raw: string): string {
 
 export default function MessageBubble({ role, content, timestamp }: MessageBubbleProps) {
   const isUser = role === "user";
+  // Special inline TX marker: __tx__{"chain":"sepolia","chainId":11155111,"txHash":"0x...","address":"0x..."}
+  const txMatch = content.startsWith("__tx__") ? content.slice(6) : null;
   const html = renderContentToHtml(content);
   return (
     <motion.div
@@ -59,7 +64,20 @@ export default function MessageBubble({ role, content, timestamp }: MessageBubbl
           : "mr-auto glass text-app-foreground/90 ring-1 ring-black/5 dark:ring-white/10 rounded-bl-none"
       )}
     >
-      <div dangerouslySetInnerHTML={{ __html: html }} />
+      {txMatch ? (
+        (() => {
+          try {
+            const data = JSON.parse(txMatch);
+            return (
+              <TxInline chain={data.chain} chainId={data.chainId} txHash={data.txHash} address={data.address} />
+            );
+          } catch {
+            return <div dangerouslySetInnerHTML={{ __html: html }} />;
+          }
+        })()
+      ) : (
+        <div dangerouslySetInnerHTML={{ __html: html }} />
+      )}
       {timestamp ? (
         <span
           className={clsx(
