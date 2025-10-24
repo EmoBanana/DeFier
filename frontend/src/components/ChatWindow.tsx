@@ -4,8 +4,9 @@ import { useRef, useEffect, useState } from "react";
 import MessageBubble from "./MessageBubble";
 import TypingBubble from "./TypingBubble";
 import { getUnifiedBalance, transferFunds, getExplorerUrl, bridgeAndExecute, normalizeTokenSymbol, toTestnetChainId, bridgeFunds } from "lib/avail";
-import { useNotification } from "@blockscout/app-sdk";
+import { executeSplit } from "../../lib/split";
 import { useAccount } from "wagmi";
+import { useNotification } from "@blockscout/app-sdk";
 import { isAddress } from "viem";
 
 type Message = { id: string; role: "user" | "assistant"; content: string; timestamp?: string };
@@ -64,7 +65,7 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
         if (reply) addMessage("assistant", reply);
         const intent = data?.intent || null;
         console.log("[flow] intent parsed", intent);
-        if (intent?.action !== "transfer" && intent?.action !== "bridge") return;
+        if (intent?.action !== "transfer" && intent?.action !== "bridge" && intent?.action !== "split") return;
         const eth = (typeof window !== 'undefined' ? (window as any).ethereum : null);
         const fromAddr = address || (eth?.selectedAddress as `0x${string}` | undefined);
         if (!eth || !fromAddr) {
@@ -72,12 +73,87 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
           return;
         }
 
-        // Resolve ENS (placeholder): require 0x address for now
+        // Split intent path
+        if (intent.action === "split") {
+          const chain = String(intent.chain || "sepolia").toLowerCase();
+          if (chain !== "sepolia") {
+            addMessage("assistant", "Split is only wired for Sepolia in this demo.");
+            return;
+          }
+          const token = String(intent.token || "PYUSD").toUpperCase();
+          if (token !== "PYUSD") {
+            addMessage("assistant", "This splitter is configured for PYUSD only.");
+            return;
+          }
+          const recipientField = String(intent.recipient || "");
+          let addrs = recipientField
+            .replace(/\s*,\s*/g, ',')
+            .replace(/\band\b/gi, ',')
+            .split(/[ ,]+/)
+            .filter(Boolean)
+            .filter((t) => /^0x[a-fA-F0-9]{40}$/.test(t));
+          if (addrs.length === 0) {
+            const fromUser = (text.match(/0x[a-fA-F0-9]{40}/g) || []);
+            if (fromUser.length > 0) addrs = fromUser;
+          }
+          if (addrs.length === 0) {
+            addMessage("assistant", "Please provide at least one 0x address.");
+            return;
+          }
+          if (!addrs.every((a) => isAddress(a as `0x${string}`))) {
+            addMessage("assistant", "All recipients must be 0x addresses.");
+            return;
+          }
+          const total = Number(intent.amount || "0");
+          if (!isFinite(total) || total <= 0) {
+            addMessage("assistant", "Amount must be greater than 0.");
+            return;
+          }
+          // If phrasing is "split X between A and B" → equal parts
+          const per = Number((total / addrs.length).toFixed(6));
+          try { await (window as any).ethereum?.request?.({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] }); } catch {}
+          try {
+            const { txHash, explorerUrl } = await executeSplit({
+              recipients: addrs as `0x${string}`[],
+              amounts: Array(addrs.length).fill(per),
+            });
+            addMessage("assistant", explorerUrl ? `Split submitted. [View on Blockscout](${explorerUrl})` : `Split submitted. Tx: ${txHash}`);
+            addMessage("assistant", `__tx__${JSON.stringify({ chain: "sepolia", chainId: 11155111, txHash, address: fromAddr })}`);
+            // Do not auto-open overlay for PYUSD; inline bubble handles status
+          } catch (e: any) {
+            addMessage("assistant", `Split failed: ${e?.message || 'unknown error'}`);
+          }
+          return;
+        }
+
+        // Resolve ENS (placeholder): require 0x address for transfer/bridge paths
         if (!isAddress(intent.recipient as `0x${string}`)) {
           addMessage("assistant", "ENS resolution not configured yet. Please provide a 0x address.");
           return;
         }
         const toAddress = intent.recipient as `0x${string}`;
+
+        // If PYUSD on Sepolia and a simple send → use Split contract with single recipient
+        if (
+          intent.action === "transfer" &&
+          String(intent.token || "").toUpperCase() === "PYUSD" &&
+          String(intent.chain || "").toLowerCase() === "sepolia"
+        ) {
+          try { await (window as any).ethereum?.request?.({ method: 'wallet_switchEthereumChain', params: [{ chainId: '0xaa36a7' }] }); } catch {}
+          try {
+            const amt = Number(intent.amount || '0');
+            const { txHash, explorerUrl } = await executeSplit({
+              recipients: [toAddress],
+              amounts: [amt],
+            });
+            addMessage("assistant", explorerUrl ? `Transfer submitted. [View on Blockscout](${explorerUrl})` : `Transfer submitted. Tx: ${txHash}`);
+            addMessage("assistant", `__tx__${JSON.stringify({ chain: "sepolia", chainId: 11155111, txHash, address: fromAddr })}`);
+            // Do not auto-open overlay for PYUSD; inline bubble handles status
+          } catch (e: any) {
+            addMessage("assistant", `Transfer failed: ${e?.message || 'unknown error'}`);
+          }
+          return;
+        }
 
         // Unified balance check (placeholder logic)
         const ub = await getUnifiedBalance(fromAddr);

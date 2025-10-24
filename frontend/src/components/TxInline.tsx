@@ -1,8 +1,8 @@
 "use client";
 
 import React from "react";
-import { useTransactionPopup } from "@blockscout/app-sdk";
 import { getExplorerUrl } from "lib/avail";
+import { useTransactionPopup } from "@blockscout/app-sdk";
 
 type TxInlineProps = {
   chain: string;

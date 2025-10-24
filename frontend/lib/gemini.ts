@@ -45,18 +45,26 @@ export async function generateSolanaMarketAnalysis(): Promise<void> {
 
 
 // --- Intent Parsing (merged from aiHandler) ---
-type GeminiIntent = {
-  action: "transfer";
-  token: string;
-  amount: string;
-  recipient: string;
-  chain: string;
-};
+type GeminiIntent =
+  | {
+      action: "transfer";
+      token: string;
+      amount: string;
+      recipient: string;
+      chain: string;
+    }
+  | {
+      action: "split";
+      token: string; // PYUSD
+      amount: string; // total or per-recipient depending on phrasing; we'll normalize client-side
+      recipient: string; // may be comma-separated addresses for split; client will parse
+      chain: string; // sepolia
+    };
 
 const GEMINI_URL =
   "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
-const SYSTEM = `You are a blockchain assistant that converts concise user requests into a strict JSON intent. Output ONLY JSON with keys: action, token, amount, recipient, chain. Examples:\n\nInput: Send 10 USDC to wenn.eth on Arb.\nOutput: {"action":"transfer","token":"USDC","amount":"10","recipient":"wenn.eth","chain":"arbitrum"}`;
+const SYSTEM = `You are a blockchain assistant that converts concise user requests into a strict JSON intent. Output ONLY JSON with keys: action, token, amount, recipient, chain. Map chain synonyms: sepolia->sepolia, arb->arbitrum, op->optimism. For split instructions with multiple recipients, set action="split", token, amount (total), recipient as a comma-separated list of 0x addresses, chain. Examples:\n\nInput: Send 10 USDC to wenn.eth on Arb.\nOutput: {"action":"transfer","token":"USDC","amount":"10","recipient":"wenn.eth","chain":"arbitrum"}\n\nInput: Split 10 PYUSD between 0xAAA and 0xBBB on Sepolia.\nOutput: {"action":"split","token":"PYUSD","amount":"10","recipient":"0xAAA,0xBBB","chain":"sepolia"}`;
 
 export async function parseIntent(text: string): Promise<GeminiIntent> {
   const apiKey = process.env.GEMINI_API_KEY;

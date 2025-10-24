@@ -7,6 +7,9 @@ import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { getRainbowTheme, wagmiConfig } from "lib/wallet";
 import { NotificationProvider, TransactionPopupProvider } from "@blockscout/app-sdk";
+// Typed import may fail before dependency install; fall back to require at runtime
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const { Toaster } = require("sonner");
 import "@rainbow-me/rainbowkit/styles.css";
 
 type ProvidersProps = {
@@ -26,6 +29,7 @@ function RainbowBridge({ children }: { children: React.ReactNode }) {
           <NotificationProvider>
             <TransactionPopupProvider>
               {children}
+              <Toaster richColors position="top-right" />
             </TransactionPopupProvider>
           </NotificationProvider>
         </RainbowKitProvider>

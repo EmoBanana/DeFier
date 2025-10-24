@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
     const lastUserMessage = messages
       .filter((m: any) => m.role === "user")
       .pop()?.content || "";
-    const isAction = /\b(send|transfer|bridge|swap)\b/i.test(String(lastUserMessage));
+    const isAction = /\b(send|transfer|bridge|swap|split)\b/i.test(String(lastUserMessage));
 
     // Initialize MCP tools only for non-action queries
     let allTools: any[] = [];
@@ -297,11 +297,25 @@ export async function POST(req: NextRequest) {
       const amtTok = msg.match(/\b(\d+(?:\.\d+)?)\s*([a-zA-Z]{2,10})\b/);
       // to 0x... or ENS after "to"
       const toMatch = msg.match(/\bto\s+([0-9a-zA-Z\.]+)\b/i);
+      // between A and B (split intent) → capture until " on ..." or end
+      const between = msg.match(/between\s+(.+?)(?=\s+on\b|\s*$)/i);
       // on <chain>
       const onMatch = msg.match(/\bon\s+([a-zA-Z0-9_-]+)\b/i);
       // from <chain>
       const fromMatch = msg.match(/\bfrom\s+([a-zA-Z0-9_-]+)\b/i);
-      if (amtTok && toMatch && onMatch) {
+      if (amtTok && between && onMatch) {
+        const amount = amtTok[1];
+        const token = normalizeToken(amtTok[2]);
+        const chain = normalizeChain(onMatch[1]);
+        const recips = between[1]
+          .replace(/\s*,\s*/g, ',')
+          .replace(/\band\b/gi, ',')
+          .split(/[ ,]+/)
+          .filter(Boolean)
+          .filter((t) => /^0x[a-fA-F0-9]{40}$/.test(t))
+          .join(',');
+        intent = { action: 'split', token, amount, recipient: recips, chain } as any;
+      } else if (amtTok && toMatch && onMatch) {
         const amount = amtTok[1];
         const token = normalizeToken(amtTok[2]);
         const recipient = toMatch[1];
