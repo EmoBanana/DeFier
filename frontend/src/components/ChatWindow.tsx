@@ -99,15 +99,28 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
             return;
           }
           const recipientField = String(intent.recipient || "");
-          let addrs = recipientField
+          const tokens = recipientField
             .replace(/\s*,\s*/g, ',')
             .replace(/\band\b/gi, ',')
             .split(/[ ,]+/)
-            .filter(Boolean)
-            .filter((t) => /^0x[a-fA-F0-9]{40}$/.test(t));
+            .filter(Boolean);
+          let addrs: (`0x${string}`)[] = [];
+          for (const tok of tokens) {
+            const t = tok.trim();
+            if (/^0x[a-fA-F0-9]{40}$/.test(t)) {
+              addrs.push(t as `0x${string}`);
+              continue;
+            }
+            const fixed = resolveFixedName(t);
+            if (fixed) addrs.push(fixed);
+          }
           if (addrs.length === 0) {
-            const fromUser = (text.match(/0x[a-fA-F0-9]{40}/g) || []);
-            if (fromUser.length > 0) addrs = fromUser;
+            // Fallback: scan user message for 0x addresses and known ENS names
+            const fromUser0x = (text.match(/0x[a-fA-F0-9]{40}/g) || []) as `0x${string}`[];
+            const fromUserEns = (text.match(/[A-Za-z0-9.-]+\.eth/gi) || [])
+              .map((n) => resolveFixedName(n))
+              .filter((v): v is `0x${string}` => Boolean(v));
+            addrs = [...fromUser0x, ...fromUserEns];
           }
           if (addrs.length === 0) {
             addMessage("assistant", "Please provide at least one 0x address.");
