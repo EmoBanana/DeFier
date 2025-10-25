@@ -32,7 +32,8 @@ export async function POST(req: NextRequest) {
     const lastUserMessage = messages
       .filter((m: any) => m.role === "user")
       .pop()?.content || "";
-    const isAction = /\b(send|transfer|bridge|swap|split)\b/i.test(String(lastUserMessage));
+    // If request mentions Send, Bridge, or Split → treat as action and skip MCP tools entirely
+    const isAction = /\b(send|bridge|split)\b/i.test(String(lastUserMessage));
 
     // Initialize MCP tools only for non-action queries
     let allTools: any[] = [];
@@ -72,7 +73,12 @@ export async function POST(req: NextRequest) {
       functionDeclarations: relevantTools.map(mcpToolToGeminiFunctionDeclaration),
     }] : undefined;
 
-    let body: any = { contents };
+    // Deduplicate: if the last assistant message already contains an INTENT, avoid having the model repeat it
+    // by trimming prior assistant message parts. We still pass the visible text history.
+    const trimmedContents = contents.slice();
+    // no-op placeholder for now; maintain structure for future dedupe hooks
+
+    let body: any = { contents: trimmedContents };
     if (tools && !isAction) {
       body.tools = tools;
     }

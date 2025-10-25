@@ -23,6 +23,27 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
   const nowTs = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
+  function resolveFixedName(nameLike: string): `0x${string}` | null {
+    const n = String(nameLike || "").trim().toLowerCase();
+    if (n === "wenn.eth") return "0x54609ff7660d8bF2F6c2c6078dae2E7f791610b4" as `0x${string}`;
+    if (n === "weewee.eth") return "0x60CB041A232b7Ad0966E6Ec46728078461242803" as `0x${string}`;
+    return null;
+  }
+
+  async function resolveEnsViaBlockscout(nameLike: string): Promise<`0x${string}` | null> {
+    const name = String(nameLike || '').trim();
+    if (!name || !name.includes('.')) return null;
+    try {
+      const res = await fetch('/api/ens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+      if (!res.ok) return null;
+      const json = await res.json();
+      const m = String(json?.address || '').match(/0x[a-fA-F0-9]{40}/);
+      return (m?.[0] as `0x${string}`) || null;
+    } catch {
+      return null;
+    }
+  }
+
   // Map human chain names to Blockscout SDK chain IDs (not always EVM chain IDs)
   function toBlockscoutChainId(chainLike: string | number): number {
     if (typeof chainLike === 'number') return chainLike;
@@ -131,12 +152,19 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
           return;
         }
 
-        // Resolve ENS (placeholder): require 0x address for transfer/bridge paths
-        if (!isAddress(intent.recipient as `0x${string}`)) {
-          addMessage("assistant", "ENS resolution not configured yet. Please provide a 0x address.");
+        // Resolve recipient: fixed ENS mapping first, then 0x address
+        const recipientRaw = String(intent.recipient || "");
+        let toAddress: `0x${string}` | null = null;
+        if (isAddress(recipientRaw as `0x${string}`)) {
+          toAddress = recipientRaw as `0x${string}`;
+        } else {
+          const fixed = resolveFixedName(recipientRaw);
+          toAddress = fixed || (await resolveEnsViaBlockscout(recipientRaw));
+        }
+        if (!toAddress) {
+          addMessage("assistant", "Address resolution is limited for now.");
           return;
         }
-        const toAddress = intent.recipient as `0x${string}`;
 
         // If PYUSD on Sepolia and a simple send → use Split contract with single recipient
         if (
