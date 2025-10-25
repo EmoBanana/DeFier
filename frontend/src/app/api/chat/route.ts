@@ -83,6 +83,86 @@ export async function POST(req: NextRequest) {
       body.tools = tools;
     }
 
+    // For actionable intents, skip Gemini entirely and build intent from the user's text
+    if (isAction) {
+      function normalizeChain(x: string) {
+        const c = x.toLowerCase();
+        if (c === 'arb' || c.includes('arbitrum')) return 'arbitrum';
+        if (c === 'op' || c.includes('optimism')) return 'optimism';
+        if (c.includes('base')) return 'base';
+        if (c.includes('amoy') || c.includes('polygon') || c.includes('matic')) return 'polygon';
+        if (c.includes('sepolia')) return 'sepolia';
+        return c;
+      }
+      function normalizeToken(x: string) {
+        const t = x.toUpperCase();
+        if (t === 'SEPOLIA') return 'ETH';
+        if (t === 'ETH' || t === 'WETH') return 'ETH';
+        if (t === 'USDC') return 'USDC';
+        if (t === 'USDT') return 'USDT';
+        return t;
+      }
+      const msg = String(lastUserMessage || '').replace(/\s+/g, ' ').trim();
+      const amtTok = msg.match(/\b(\d+(?:\.\d+)?)\s*([a-zA-Z]{2,10})\b/);
+      const toMatch = msg.match(/\bto\s+([0-9a-zA-Z\.]+)\b/i);
+      const between = msg.match(/between\s+(.+?)(?=\s+on\b|\s*$)/i);
+      const onMatch = msg.match(/\bon\s+([a-zA-Z0-9_-]+)\b/i);
+      const fromToMatch = msg.match(/\bfrom\s+([a-zA-Z0-9_-]+)\s+to\s+([a-zA-Z0-9_-]+)\b/i);
+      const recipientMatch = msg.match(/\bfor\s+(0x[a-fA-F0-9]{40})\b/);
+      const fromMatch = msg.match(/\bfrom\s+([a-zA-Z0-9_-]+)\b/i);
+
+      let intent: any | null = null;
+      if (amtTok && between && onMatch) {
+        const amount = amtTok[1];
+        const token = normalizeToken(amtTok[2]);
+        const chain = normalizeChain(onMatch[1]);
+        const recips = between[1]
+          .replace(/\s*,\s*/g, ',')
+          .replace(/\band\b/gi, ',')
+          .split(/[ ,]+/)
+          .filter(Boolean)
+          .filter((t) => /^0x[a-fA-F0-9]{40}$/.test(t))
+          .join(',');
+        intent = { action: 'split', token, amount, recipient: recips, chain } as any;
+      } else if (amtTok && toMatch && onMatch) {
+        const amount = amtTok[1];
+        const token = normalizeToken(amtTok[2]);
+        const recipient = toMatch[1];
+        const chain = normalizeChain(onMatch[1]);
+        const source = fromMatch ? normalizeChain(fromMatch[1]) : undefined;
+        // If explicit "bridge" keyword present, treat as bridge intent
+        const isBridge = /\bbridge\b/i.test(msg);
+        intent = isBridge
+          ? { action: 'bridge', token, amount, chain, source }
+          : { action: 'transfer', token, amount, recipient, chain, source };
+      } else if (amtTok && fromToMatch) {
+        // e.g., "Bridge 1 USDC from Arb to Base [for 0x...]"
+        const amount = amtTok[1];
+        const token = normalizeToken(amtTok[2]);
+        const source = normalizeChain(fromToMatch[1]);
+        const chain = normalizeChain(fromToMatch[2]);
+        const recipient = recipientMatch ? recipientMatch[1] : undefined;
+        intent = recipient
+          ? { action: 'bridge', token, amount, chain, source, recipient }
+          : { action: 'bridge', token, amount, chain, source };
+      }
+
+      // Build a minimal acknowledgment without extra telemetry
+      let ack = "Acknowledged.";
+      if (intent?.action === 'transfer') {
+        ack = `Acknowledged. Preparing to send ${intent.amount} ${intent.token} to ${intent.recipient} on ${intent.chain}.`;
+      } else if (intent?.action === 'split') {
+        ack = `Acknowledged. Preparing to split ${intent.amount} ${intent.token} on ${intent.chain}.`;
+      } else if (intent?.action === 'bridge') {
+        ack = `Acknowledged. Preparing to bridge ${intent.amount} ${intent.token}${intent.source ? ` from ${intent.source}` : ''} to ${intent.chain}.`;
+      }
+
+      return new Response(
+        JSON.stringify({ reply: ack, intent }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     // Initial call to Gemini with function calling enabled
     console.log("🤖 Calling Gemini with", isAction ? 0 : relevantTools.length, "relevant MCP tools");
     

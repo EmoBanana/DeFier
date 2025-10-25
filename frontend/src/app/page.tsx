@@ -15,9 +15,7 @@ export default function Home() {
       {/* Header */}
       <header className="mb-4 flex items-center justify-between sticky top-0 z-40 bg-app/80 backdrop-blur supports-[backdrop-filter]:bg-app/60 px-3 py-2">
         <div className="flex items-center gap-3">
-          <div className="glass card-shadow flex h-10 w-10 items-center justify-center rounded-2xl ring-1 ring-black/5 dark:ring-white/10">
-            <span className="text-base font-semibold text-app-foreground">D</span>
-          </div>
+          <img src="/Logo.png" alt="DeFier" className="h-10 w-10 rounded-2xl" />
           <h1 className="text-lg font-semibold tracking-tight text-app-foreground">DeFier</h1>
         </div>
         <div className="flex items-center gap-2">

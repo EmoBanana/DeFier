@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "DeFier – AI Blockchain Assistant",
-  description: "Elegant, calming chat interface for DeFier",
+  title: "DeFier",
+  description: "AI-Powered Blockchain Assistant",
 };
 
 export default function RootLayout({
