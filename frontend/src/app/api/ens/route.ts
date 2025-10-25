@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { initializeMcpClients, callMcpTool } from "../../../lib/mcpClient";
+import { initializeMcpClients, callMcpTool } from "../../../../lib/mcpClient";
 
 export async function POST(req: NextRequest) {
   try {
