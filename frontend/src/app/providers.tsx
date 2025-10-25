@@ -8,9 +8,7 @@ import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { getRainbowTheme, wagmiConfig } from "lib/wallet";
 import { NotificationProvider, TransactionPopupProvider } from "@blockscout/app-sdk";
 import { NexusProvider, useNexus } from "@avail-project/nexus-widgets";
-// Typed import may fail before dependency install; fall back to require at runtime
-// eslint-disable-next-line @typescript-eslint/no-var-requires
-const { Toaster } = require("sonner");
+import { Toaster } from "sonner";
 import "@rainbow-me/rainbowkit/styles.css";
 
 type ProvidersProps = {
@@ -33,7 +31,7 @@ function RainbowBridge({ children }: { children: React.ReactNode }) {
         triedRef.current = true;
         initializeSdk(eth).catch(() => { /* noop */ });
       }
-    }, []);
+    }, [initializeSdk]);
     return <>{children}</>;
   }
 

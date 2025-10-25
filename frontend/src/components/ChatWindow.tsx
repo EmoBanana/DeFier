@@ -19,7 +19,7 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isTyping, setIsTyping] = useState(false);
   const { address, isConnected } = useAccount();
-  const { openTxToast } = useNotification(); // keep available but do not auto-open
+  // const { openTxToast } = useNotification(); // reserved for future toast UX
   const nowTs = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -253,7 +253,7 @@ if (intent.action === "bridge") {
           const ub2 = await getUnifiedBalance(fromAddr);
           const asset = (ub2 as any)?.assets?.find((a: any) => String(a?.symbol || '').toUpperCase() === desiredToken);
           if (asset) {
-            const onDest = (asset.breakdown || []).find((b: any) => Number(b?.chain?.id) === Number(destChainId));
+            // const onDest = (asset.breakdown || []).find((b: any) => Number(b?.chain?.id) === Number(destChainId));
             // Sum all entries on destination chain to be safe
             const destEntries = (asset.breakdown || []).filter((b: any) => Number(b?.chain?.id) === Number(destChainId));
             const destBal = destEntries.reduce((sum: number, b: any) => sum + Number(b?.balance ?? '0'), 0);

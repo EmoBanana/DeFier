@@ -34,7 +34,7 @@ export default function TxInline(props: TxInlineProps) {
   const [bridgeDone, setBridgeDone] = React.useState(false);
   
 
-  // Bridge widget branch
+  // Bridge widget branch - render path, but avoid calling hooks conditionally
   if (props.type === "bridge") {
     const token = normalizeTokenSymbol(props.token);
     const destChainId = typeof props.toChain === 'number' ? props.toChain : toTestnetChainId(String(props.toChain));
@@ -97,6 +97,7 @@ export default function TxInline(props: TxInlineProps) {
     );
   }
 
+  // Transaction receipt polling only applies for tx type
   React.useEffect(() => {
     let mounted = true;
     let tries = 0;
@@ -130,11 +131,13 @@ export default function TxInline(props: TxInlineProps) {
       }
     }
 
-    checkReceipt();
+    if ((props as TxInlineTxProps).txHash) {
+      checkReceipt();
+    }
     return () => {
       mounted = false;
     };
-  }, [props.type === 'tx' ? props.txHash : undefined]);
+  }, [props.type, (props as TxInlineTxProps).txHash]);
 
   async function loadDetails() {
     if (details || loadingDetails) {
