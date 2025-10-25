@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { getExplorerUrl, toTestnetChainId, normalizeTokenSymbol, bridgeFunds } from "lib/avail";
+import { getExplorerUrl, toTestnetChainId, normalizeTokenSymbol } from "lib/avail";
 import { useTransactionPopup } from "@blockscout/app-sdk";
 import { BridgeButton, TESTNET_CHAINS } from "@avail-project/nexus-widgets";
 
@@ -31,8 +31,8 @@ export default function TxInline(props: TxInlineProps) {
   const [details, setDetails] = React.useState<string>("");
   const [loadingDetails, setLoadingDetails] = React.useState(false);
   const [detailsError, setDetailsError] = React.useState<string>("");
-  const [coreLoading, setCoreLoading] = React.useState(false);
-  const [coreError, setCoreError] = React.useState<string>("");
+  const [bridgeDone, setBridgeDone] = React.useState(false);
+  
 
   // Bridge widget branch
   if (props.type === "bridge") {
@@ -57,11 +57,18 @@ export default function TxInline(props: TxInlineProps) {
             {({ onClick, isLoading }) => (
               <button
                 type="button"
-                onClick={onClick}
-                disabled={isLoading}
+                onClick={async () => {
+                  try {
+                    await onClick();
+                    setBridgeDone(true);
+                  } catch {
+                    // ignore; widget handles errors internally
+                  }
+                }}
+                disabled={isLoading || bridgeDone}
                 className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-blue-600 text-white disabled:opacity-60"
               >
-                {isLoading ? 'Bridging…' : 'Bridge now'}
+                {isLoading ? 'Bridging…' : bridgeDone ? 'Bridge successful' : 'Bridge now'}
               </button>
             )}
           </BridgeButton>
@@ -85,41 +92,7 @@ export default function TxInline(props: TxInlineProps) {
             )}
           </div>
         )}
-        <div className="mt-2">
-          <button
-            type="button"
-            disabled={coreLoading || srcChainId === undefined}
-            onClick={async () => {
-              if (srcChainId === undefined) return;
-              setCoreLoading(true);
-              setCoreError("");
-              try {
-                const res: any = await bridgeFunds({
-                  fromChain: Number(srcChainId),
-                  toChain: Number(destChainId),
-                  token,
-                  amount: String(amountNum),
-                  toAddress: "0x0000000000000000000000000000000000000000" as `0x${string}`,
-                });
-                const txHash = res?.transactionHash || res?.bridgeTransactionHash || "";
-                if (txHash) {
-                  const url = getExplorerUrl(String(destChainId), txHash);
-                  if (url) window.open(url, "_blank");
-                }
-              } catch (e: any) {
-                setCoreError(e?.message || "Core bridge failed");
-              } finally {
-                setCoreLoading(false);
-              }
-            }}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-md bg-app-foreground/10 text-app-foreground/80 hover:bg-app-foreground/15 disabled:opacity-50"
-          >
-            {coreLoading ? 'Submitting…' : 'Bridge via core (fallback)'}
-          </button>
-          {coreError && (
-            <div className="mt-1 text-rose-600 dark:text-rose-400 text-xs">{coreError}</div>
-          )}
-        </div>
+        
       </div>
     );
   }

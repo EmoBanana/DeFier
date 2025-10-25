@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       .filter((m: any) => m.role === "user")
       .pop()?.content || "";
     // If request mentions Send, Bridge, or Split → treat as action and skip MCP tools entirely
-    const isAction = /\b(send|bridge|split)\b/i.test(String(lastUserMessage));
+    const isAction = /\b(send|transfer|bridge|split)\b/i.test(String(lastUserMessage));
 
     // Initialize MCP tools only for non-action queries
     let allTools: any[] = [];
@@ -149,6 +149,7 @@ export async function POST(req: NextRequest) {
     let iteration = 0;
 
     while (candidate?.content?.parts && iteration < maxIterations) {
+      if (isAction) break; // never execute tools for actionable intents
       const parts = candidate.content.parts;
       
       // Check if there are function calls

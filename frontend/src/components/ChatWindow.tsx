@@ -159,7 +159,8 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
           toAddress = recipientRaw as `0x${string}`;
         } else {
           const fixed = resolveFixedName(recipientRaw);
-          toAddress = fixed || (await resolveEnsViaBlockscout(recipientRaw));
+          // Do not call MCP-backed ENS resolution for actionable intents
+          toAddress = fixed;
         }
         if (!toAddress) {
           addMessage("assistant", "Address resolution is limited for now.");

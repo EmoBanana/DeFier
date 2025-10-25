@@ -19,6 +19,10 @@ const eslintConfig = [
       "build/**",
       "next-env.d.ts",
     ],
+    rules: {
+      // Allow pragmatic use of 'any' in integration layers
+      "@typescript-eslint/no-explicit-any": "off",
+    },
   },
 ];
 
