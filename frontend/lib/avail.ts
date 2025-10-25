@@ -47,26 +47,30 @@ export async function getUnifiedBalance(_address: Address) {
 }
 
 export async function bridgeFunds(params: {
-  fromChain: number;
-  toChain: number;
-  token: string;
-  amount: string;
-  toAddress: Address;
-}) {
-  const client = await ensureNexus();
-  console.log("[avail] Bridging funds", params);
+    fromChain: number; // now chainId, not string
+    toChain: number;   // now chainId, not string
+    token: string;
+    amount: string;
+    toAddress: Address;
+  }) {
+    const client = await ensureNexus();
+    console.log("[avail] Bridging funds", params);
   
-  const token = normalizeToken(params.token);
+    // Directly use the passed destination chain ID
+    const token = normalizeToken(params.token);
+    // Ensure CA is on the source chain so approvals/permits originate correctly
+    try { await (client as any).switchChain?.(params.fromChain); } catch {}
+    const destChainId = params.toChain as (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
+    const parameters = {
+      token,
+      amount: Number(params.amount),
+      chainId: destChainId,
+    }
+    console.log("[avail] bridge parameters", parameters);
+    const result = await client.bridge(parameters);
   
-  const result = await client.bridge({
-    token,
-    amount: params.amount,
-    chainId: params.toChain as unknown as SUPPORTED_CHAINS_IDS,
-  });
-
-  return result as any;
-}
-
+    return result as any;
+  }
   
 
 export async function transferFunds(params: {

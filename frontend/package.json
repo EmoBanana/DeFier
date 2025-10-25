@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@avail-project/nexus-core": "^0.0.2-beta.5",
+    "@avail-project/nexus-widgets": "^0.0.2-beta.5",
     "@blockscout/app-sdk": "^0.1.2",
     "@coingecko/coingecko-mcp": "^2.2.0",
     "@coingecko/coingecko-typescript": "^2.2.0",

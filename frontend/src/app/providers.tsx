@@ -7,6 +7,7 @@ import { WagmiProvider } from "wagmi";
 import { RainbowKitProvider } from "@rainbow-me/rainbowkit";
 import { getRainbowTheme, wagmiConfig } from "lib/wallet";
 import { NotificationProvider, TransactionPopupProvider } from "@blockscout/app-sdk";
+import { NexusProvider, useNexus } from "@avail-project/nexus-widgets";
 // Typed import may fail before dependency install; fall back to require at runtime
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const { Toaster } = require("sonner");
@@ -22,13 +23,31 @@ function RainbowBridge({ children }: { children: React.ReactNode }) {
   const theme = getRainbowTheme(isDark);
   const [queryClient] = React.useState(() => new QueryClient());
 
+  function NexusInit({ children }: { children: React.ReactNode }) {
+    const { initializeSdk } = useNexus();
+    const triedRef = React.useRef(false);
+    React.useEffect(() => {
+      if (triedRef.current) return;
+      const eth = (typeof window !== "undefined" ? (window as any).ethereum : undefined);
+      if (eth) {
+        triedRef.current = true;
+        initializeSdk(eth).catch(() => { /* noop */ });
+      }
+    }, []);
+    return <>{children}</>;
+  }
+
   return (
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider theme={theme}>
           <NotificationProvider>
             <TransactionPopupProvider>
-              {children}
+              <NexusProvider config={{ network: 'testnet', debug: false }}>
+                <NexusInit>
+                  {children}
+                </NexusInit>
+              </NexusProvider>
               <Toaster richColors position="top-right" />
             </TransactionPopupProvider>
           </NotificationProvider>

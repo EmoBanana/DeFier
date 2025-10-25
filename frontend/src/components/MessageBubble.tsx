@@ -51,6 +51,8 @@ export default function MessageBubble({ role, content, timestamp }: MessageBubbl
   const isUser = role === "user";
   // Special inline TX marker: __tx__{"chain":"sepolia","chainId":11155111,"txHash":"0x...","address":"0x..."}
   const txMatch = content.startsWith("__tx__") ? content.slice(6) : null;
+  // Bridge preview marker: __bridge__{"token":"USDC","amount":"10","toChain":"arbitrum"}
+  const bridgeMatch = content.startsWith("__bridge__") ? content.slice(10) : null;
   const html = renderContentToHtml(content);
   return (
     <motion.div
@@ -69,7 +71,18 @@ export default function MessageBubble({ role, content, timestamp }: MessageBubbl
           try {
             const data = JSON.parse(txMatch);
             return (
-              <TxInline chain={data.chain} chainId={data.chainId} txHash={data.txHash} address={data.address} />
+              <TxInline type="tx" chain={data.chain} chainId={data.chainId} txHash={data.txHash} address={data.address} />
+            );
+          } catch {
+            return <div dangerouslySetInnerHTML={{ __html: html }} />;
+          }
+        })()
+      ) : bridgeMatch ? (
+        (() => {
+          try {
+            const data = JSON.parse(bridgeMatch);
+            return (
+              <TxInline type="bridge" token={data.token} amount={data.amount} toChain={data.toChain} fromChain={data.fromChain} />
             );
           } catch {
             return <div dangerouslySetInnerHTML={{ __html: html }} />;

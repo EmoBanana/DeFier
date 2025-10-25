@@ -19,7 +19,7 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
   const [messages, setMessages] = useState<Message[]>(initialMessages);
   const [isTyping, setIsTyping] = useState(false);
   const { address, isConnected } = useAccount();
-  const { openTxToast } = useNotification();
+  const { openTxToast } = useNotification(); // keep available but do not auto-open
   const nowTs = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -36,7 +36,12 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
   }
 
   useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    const el = scrollRef.current;
+    if (!el) return;
+    const scrollNow = () => el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    // Defer until after DOM paints to capture new height
+    const id = requestAnimationFrame(scrollNow);
+    return () => cancelAnimationFrame(id);
   }, [messages.length]);
 
   const addMessage = (role: Message["role"], content: string) => {
@@ -202,35 +207,8 @@ if (intent.action === "bridge") {
     amount: intent.amount,
   });
 
-  const br = await bridgeFunds({
-    fromChain: fromChainId,
-    toChain: toChainId,
-    token: intent.token as string,
-    amount: intent.amount as string,
-    toAddress,
-  });  
-
-  const bHash =
-    (br as any)?.bridgeTransactionHash ||
-    (br as any)?.transactionHash ||
-    "";
-
-  addMessage(
-    "assistant",
-    bHash
-      ? `Bridge submitted. [View on explorer](${getExplorerUrl(toChain, bHash)})`
-      : (br as any)?.success === false
-      ? `Bridge failed: ${(br as any)?.error || "unknown error"}`
-      : "Bridge submitted. Awaiting transaction hash..."
-  );
-
-  if (bHash) {
-    try {
-      await openTxToast(String(toChainId), bHash);
-    } catch (err) {
-      console.warn("[toast] failed to open transaction toast", err);
-    }
-  }
+  // Instead of executing immediately, show a bridge widget bubble
+  addMessage("assistant", `__bridge__${JSON.stringify({ token: intent.token, amount: intent.amount, toChain: toChainId, fromChain: fromChainId })}`);
   return;
 }
 
@@ -274,7 +252,7 @@ if (intent.action === "bridge") {
             const url = getExplorerUrl(intent.chain as string, directHash);
             addMessage("assistant", url ? `Transfer submitted. [View on explorer](${url})` : `Transfer submitted. Tx: ${directHash}`);
             addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash: directHash, address: fromAddr })}`);
-            try { await openTxToast(String(toBlockscoutChainId(String(intent.chain))), directHash); } catch {}
+          // overlay popup disabled
           }
           return;
         }
@@ -306,7 +284,7 @@ if (intent.action === "bridge") {
                 const url = getExplorerUrl(normalizedSrc, bHash);
                 addMessage("assistant", url ? `Bridge submitted. [View on explorer](${url})` : `Bridge submitted. Tx: ${bHash}`);
                 addMessage("assistant", `__tx__${JSON.stringify({ chain: String(normalizedSrc), chainId: toBlockscoutChainId(String(normalizedSrc)), txHash: bHash, address: fromAddr })}`);
-                try { await openTxToast(String(toBlockscoutChainId(String(normalizedSrc))), bHash); } catch {}
+                // overlay popup disabled
                 return;
               }
             } catch (e) {
@@ -321,7 +299,7 @@ if (intent.action === "bridge") {
           const url = getExplorerUrl(intent.chain as string, txHashBE);
           addMessage("assistant", url ? `Transfer submitted. [View on explorer](${url})` : `Transfer submitted. Tx: ${txHashBE}`);
           addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash: txHashBE, address: fromAddr })}`);
-          try { await openTxToast(String(toBlockscoutChainId(String(intent.chain))), txHashBE); } catch {}
+          // overlay popup disabled
           return;
         }
 
@@ -345,7 +323,7 @@ if (intent.action === "bridge") {
           const url = getExplorerUrl(intent.chain as string, txHash);
           addMessage("assistant", url ? `Transfer submitted. [View on explorer](${url})` : `Transfer submitted. Tx: ${txHash}`);
           addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash, address: fromAddr })}`);
-          try { await openTxToast(String(toBlockscoutChainId(String(intent.chain))), txHash); } catch {}
+          // overlay popup disabled
         }
       } catch (err) {
         addMessage("assistant", "Sorry, there was an error reaching the model.");
@@ -359,7 +337,7 @@ if (intent.action === "bridge") {
 
   return (
     <div className="flex h-full w-full flex-col">
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-3">
+      <div ref={scrollRef} data-hook="chat-scroll" className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-3">
         {messages.length === 0 ? (
           <div className="mx-auto max-w-xl text-center text-sm text-app-foreground/60">
             Ask DeFier about addresses, contracts, transactions, or market data.
