@@ -37,7 +37,7 @@ export async function executeSplit({ recipients, amounts }: ExecuteSplitParams):
   const decimals: number = Number(await erc20.decimals());
 
   const amountsWei = amounts.map((a) => parseUnits(a.toString(), decimals));
-  const totalWei = amountsWei.reduce((acc, v) => acc + v, 0n);
+  const totalWei = amountsWei.reduce((acc, v) => acc + v, BigInt(0));
 
   // Auto-approve if allowance is insufficient
   const currentAllowance: bigint = await erc20.allowance(userAddress, SPLIT_ADDRESS);
