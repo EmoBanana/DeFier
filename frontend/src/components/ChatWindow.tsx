@@ -6,7 +6,6 @@ import TypingBubble from "./TypingBubble";
 import { getUnifiedBalance, transferFunds, getExplorerUrl, bridgeAndExecute, normalizeTokenSymbol, toTestnetChainId, bridgeFunds } from "lib/avail";
 import { executeSplit } from "../../lib/split";
 import { useAccount } from "wagmi";
-import { useNotification } from "@blockscout/app-sdk";
 import { isAddress } from "viem";
 
 type Message = { id: string; role: "user" | "assistant"; content: string; timestamp?: string };
@@ -30,19 +29,7 @@ export default function ChatWindow({ initialMessages = [] }: ChatWindowProps) {
     return null;
   }
 
-  async function resolveEnsViaBlockscout(nameLike: string): Promise<`0x${string}` | null> {
-    const name = String(nameLike || '').trim();
-    if (!name || !name.includes('.')) return null;
-    try {
-      const res = await fetch('/api/ens', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
-      if (!res.ok) return null;
-      const json = await res.json();
-      const m = String(json?.address || '').match(/0x[a-fA-F0-9]{40}/);
-      return (m?.[0] as `0x${string}`) || null;
-    } catch {
-      return null;
-    }
-  }
+  
 
   // Map human chain names to Blockscout SDK chain IDs (not always EVM chain IDs)
   function toBlockscoutChainId(chainLike: string | number): number {
@@ -354,7 +341,7 @@ if (intent.action === "bridge") {
           addMessage("assistant", `__tx__${JSON.stringify({ chain: String(intent.chain), chainId: toBlockscoutChainId(String(intent.chain)), txHash, address: fromAddr })}`);
           // overlay popup disabled
         }
-      } catch (err) {
+      } catch {
         addMessage("assistant", "Sorry, there was an error reaching the model.");
       } finally {
         setIsTyping(false);

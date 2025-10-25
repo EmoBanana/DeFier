@@ -8,8 +8,6 @@ import { useRef } from "react";
 import Image from "next/image";
 
 export default function Home() {
-  const messagesRef = useRef<{ push: (role: "user" | "assistant", text: string) => void } | null>(null);
-
   // Local state and handlers can live in ChatWindow; here we pipe input to it via callback.
   return (
     <div className="mx-auto flex min-h-[100svh] max-w-5xl flex-col px-4 py-5 sm:px-6">

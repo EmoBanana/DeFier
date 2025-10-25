@@ -20,7 +20,6 @@ export default function WalletButton() {
         const count = Array.isArray((ub as any)?.assets) ? (ub as any).assets.length : null;
         setAssetCount(count);
       } catch (e) {
-        // eslint-disable-next-line no-console
         console.warn("[wallet-ui] unified balance fetch failed", e);
         setAssetCount(null);
       }

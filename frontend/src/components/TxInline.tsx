@@ -33,8 +33,56 @@ export default function TxInline(props: TxInlineProps) {
   const [detailsError, setDetailsError] = React.useState<string>("");
   const [bridgeDone, setBridgeDone] = React.useState(false);
   
+  // Derived props to keep effects simple and dependencies stable
+  const isTx = props.type === "tx";
+  const txHash = isTx ? (props as TxInlineTxProps).txHash : undefined;
 
-  // Bridge widget branch - render path, but avoid calling hooks conditionally
+  // Transaction receipt polling applies only for tx type, but hook is always called
+  React.useEffect(() => {
+    let mounted = true;
+    let tries = 0;
+    const maxTries = 60; // ~4 minutes at 4s interval
+
+    if (!isTx || !txHash) {
+      return () => {
+        mounted = false;
+      };
+    }
+
+    async function checkReceipt() {
+      try {
+        const eth = (typeof window !== "undefined" ? (window as any).ethereum : null);
+        if (!eth) return;
+        const receipt = await eth.request({ method: "eth_getTransactionReceipt", params: [txHash] });
+        if (!mounted) return;
+        if (receipt && receipt.status) {
+          if (receipt.status === "0x1") {
+            setStatus("success");
+            setLabel("Transaction is complete");
+            return; // stop polling
+          }
+          if (receipt.status === "0x0") {
+            setStatus("error");
+            setLabel("Transaction failed");
+            return; // stop polling
+          }
+        }
+      } catch {
+        // ignore errors; keep polling
+      }
+      tries += 1;
+      if (tries < maxTries) {
+        setTimeout(checkReceipt, 4000);
+      }
+    }
+
+    checkReceipt();
+    return () => {
+      mounted = false;
+    };
+  }, [isTx, txHash]);
+
+  // Bridge widget branch - render path
   if (props.type === "bridge") {
     const token = normalizeTokenSymbol(props.token);
     const destChainId = typeof props.toChain === 'number' ? props.toChain : toTestnetChainId(String(props.toChain));
@@ -97,47 +145,7 @@ export default function TxInline(props: TxInlineProps) {
     );
   }
 
-  // Transaction receipt polling only applies for tx type
-  React.useEffect(() => {
-    let mounted = true;
-    let tries = 0;
-    const maxTries = 60; // ~4 minutes at 4s interval
-
-    async function checkReceipt() {
-      try {
-        const eth = (typeof window !== "undefined" ? (window as any).ethereum : null);
-        if (!eth) return;
-        const hash = (props as TxInlineTxProps).txHash;
-        const receipt = await eth.request({ method: "eth_getTransactionReceipt", params: [hash] });
-        if (!mounted) return;
-        if (receipt && receipt.status) {
-          if (receipt.status === "0x1") {
-            setStatus("success");
-            setLabel("Transaction is complete");
-            return; // stop polling
-          }
-          if (receipt.status === "0x0") {
-            setStatus("error");
-            setLabel("Transaction failed");
-            return; // stop polling
-          }
-        }
-      } catch {
-        // ignore errors; keep polling
-      }
-      tries += 1;
-      if (tries < maxTries) {
-        setTimeout(checkReceipt, 4000);
-      }
-    }
-
-    if ((props as TxInlineTxProps).txHash) {
-      checkReceipt();
-    }
-    return () => {
-      mounted = false;
-    };
-  }, [props.type, (props as TxInlineTxProps).txHash]);
+  
 
   async function loadDetails() {
     if (details || loadingDetails) {
@@ -170,7 +178,7 @@ export default function TxInline(props: TxInlineProps) {
       const summary = `Action: ${method}\nFrom: ${from}\nTo: ${to}\nValue: ${value ? value + ' ' + symbol : 'n/a'}`;
       setDetails(summary);
       setShowDetails(true);
-    } catch (e: any) {
+    } catch {
       setDetailsError("Could not load interpretation. Please try View history.");
       setShowDetails(true);
     } finally {

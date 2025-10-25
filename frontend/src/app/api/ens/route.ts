@@ -18,12 +18,12 @@ export async function POST(req: NextRequest) {
       if (m?.[0]) {
         return new Response(JSON.stringify({ address: m[0] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
       }
-    } catch (e) {
+    } catch {
       // fallthrough to 404
     }
 
     return new Response(JSON.stringify({ error: 'not_found' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
-  } catch (e) {
+  } catch {
     return new Response(JSON.stringify({ error: 'server_error' }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }
