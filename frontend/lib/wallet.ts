@@ -1,6 +1,8 @@
 "use client";
 
 import { http } from "viem";
+import { createConfig } from "wagmi";
+import { injected } from "wagmi/connectors";
 import {
   sepolia,
   baseSepolia,
@@ -19,19 +21,33 @@ if (!walletConnectProjectId) {
 
 export const supportedChains = [sepolia, baseSepolia, arbitrumSepolia, optimismSepolia, polygonAmoy] as const;
 
-export const wagmiConfig = getDefaultConfig({
-  appName: "DeFier",
-  projectId: walletConnectProjectId,
-  chains: supportedChains,
-  transports: {
-    [sepolia.id]: http(),
-    [baseSepolia.id]: http(),
-    [arbitrumSepolia.id]: http(),
-    [optimismSepolia.id]: http(),
-    [polygonAmoy.id]: http(),
-  },
-  ssr: true,
-});
+// Build a config that doesn't crash builds when projectId is missing.
+export const wagmiConfig = walletConnectProjectId
+  ? getDefaultConfig({
+      appName: "DeFier",
+      projectId: walletConnectProjectId,
+      chains: supportedChains,
+      transports: {
+        [sepolia.id]: http(),
+        [baseSepolia.id]: http(),
+        [arbitrumSepolia.id]: http(),
+        [optimismSepolia.id]: http(),
+        [polygonAmoy.id]: http(),
+      },
+      ssr: true,
+    })
+  : createConfig({
+      chains: supportedChains,
+      connectors: [injected()],
+      transports: {
+        [sepolia.id]: http(),
+        [baseSepolia.id]: http(),
+        [arbitrumSepolia.id]: http(),
+        [optimismSepolia.id]: http(),
+        [polygonAmoy.id]: http(),
+      },
+      ssr: true,
+    });
 
 export function getRainbowTheme(isDark: boolean) {
   return isDark
