@@ -16,6 +16,12 @@ The app also integrates Avail Nexus Core and Avail Nexus Widgets to perform inli
 
 ---
 
+## Live Demo
+
+Check out our [live demo on Vercel](https://defier.vercel.app/) to experience DeFier for yourself.
+
+---
+
 ## Tech Stack
 
 **Frontend:**  
